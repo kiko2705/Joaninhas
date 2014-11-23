@@ -25,7 +25,7 @@
  ==============================================================================
  References:
  [1] http://www.redblobgames.com/grids/hexagons/
-	 com “even-r” horizontal layout.
+     com “even-r” horizontal layout.
  ==============================================================================
 
  ==============================================================================
@@ -53,21 +53,21 @@
  ********/
 
 #ifndef M_PI
-   #define M_PI 3.14159265358979323846  /* pi in math.h */
+	#define M_PI 3.14159265358979323846  /* pi in math.h */
 #endif
 
 /**********
  * DEBUGING
  *********/
 
-#define DEBUG    /* Habilita o modo de depuração */
-#define PRINT    /* Habilita a impressao de resultados na tela */
-#define CONV 9   /* Habilita a impressao da tab de convergencia */
+#define DEBUG   	/* Habilita o modo de depuração */
+#define PRINT   	/* Habilita a impressao de resultados na tela */
+#define CONV 9  	/* Habilita a impressao da tab de convergencia */
 
 #ifdef DEBUG
-   #define MSG_DBG( fmt, ...) fprintf( stderr, "\t[MSG_DBG:] %s (%s:%d): " \
-                                       fmt"\n", __FUNCTION__, __FILE__, \
-                                       __LINE__, ##__VA_ARGS__)
+	#define MSG_DBG( fmt, ...) fprintf( stderr, "\t[MSG_DBG:] %s (%s:%d): " \
+										fmt"\n", __FUNCTION__, __FILE__, \
+										__LINE__, ##__VA_ARGS__)
 #else
    #define MSG_DBG( fmt, ...) {;}
 #endif
@@ -110,14 +110,14 @@ typedef struct bugsmove {
 } bugsmove;
 
 struct cycledoublequeue {
-    dposition *hotspos;			/* hot's source dpositions vector */
-    dposition *coldspos;			/* Cold's source dpositions vector */
-    int hotsbegin;
-    int hotsend;
-    int hotssize;
-    int coldsbegin;
-    int coldsend;
-    int coldssize;
+	dposition *hotspos; 			/* hot's source dpositions vector */
+	dposition *coldspos;			/* Cold's source dpositions vector */
+	int hotsbegin;
+	int hotsend;
+	int hotssize;
+	int coldsbegin;
+	int coldsend;
+	int coldssize;
 };
 typedef struct cycledoublequeue cdqueue;
 
@@ -170,8 +170,8 @@ hex **createHexGrid() {
 
 	if (H == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
-			     "malloc devolveu NULL! (%d bytes)\n",
-			     -1, (int) (A * sizeof (struct hex *)));
+				 "malloc devolveu NULL! (%d bytes)\n",
+				 -1, (int) (A * sizeof (struct hex *)));
 		exit( EXIT_FAILURE);
 	}
 	for (a = 0; a < A; ++a) {
@@ -195,8 +195,8 @@ bugsmove *createBugs( hex *H[]) {
 	bugsmove *p = (bugsmove *) malloc( j * sizeof (struct bugsmove));
 	if (p == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
-			     "malloc devolveu NULL! (%d bytes)\n",
-			     -1, (int) (j * sizeof (struct position)));
+				 "malloc devolveu NULL! (%d bytes)\n",
+				 -1, (int) (j * sizeof (struct position)));
 		exit( EXIT_FAILURE);
 	}
 	for (i = 0, k = 0; i < j;) {
@@ -223,8 +223,8 @@ cdqueue *QUEUEinit() {
 	cdq->hotspos = (dposition *) malloc( ((int) (2 * cdq->hotssize * L * A)) * sizeof (dposition));
 	if (cdq->hotspos == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
-			     "malloc devolveu NULL! (%d bytes)\n",
-			     -1, (int) (((int) (2 * cdq->hotssize * L * A)) * sizeof (struct dposition)));
+				 "malloc devolveu NULL! (%d bytes)\n",
+				 -1, (int) (((int) (2 * cdq->hotssize * L * A)) * sizeof (struct dposition)));
 		exit( EXIT_FAILURE);
 	}
 	if (cdq->coldssize > pf)
@@ -232,8 +232,8 @@ cdqueue *QUEUEinit() {
 	cdq->coldspos = (dposition *) malloc( ((int) (2 * cdq->coldssize * L * A)) * sizeof (dposition));
 	if (cdq->coldspos == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
-			     "malloc devolveu NULL! (%d bytes)\n",
-			     -1, (int) (((int) (2 * cdq->coldssize * L * A)) * sizeof (struct dposition)));
+				 "malloc devolveu NULL! (%d bytes)\n",
+				 -1, (int) (((int) (2 * cdq->coldssize * L * A)) * sizeof (struct dposition)));
 		exit( EXIT_FAILURE);
 	}
 	cdq->hotsbegin = 0;
@@ -244,7 +244,7 @@ cdqueue *QUEUEinit() {
 }
 
 int QUEUEempty( cdqueue *cdq) {
-   return cdq->hotsbegin == cdq->hotsend && cdq->coldsbegin == cdq->coldsend;
+	return cdq->hotsbegin == cdq->hotsend && cdq->coldsbegin == cdq->coldsend;
 }
 
 void QUEUEput( cdqueue *cdq, dposition item, occupation elem) {
@@ -328,8 +328,8 @@ neighbors *neighborn( hex *H[], position p) {
 	};
 	if (nbs == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
-			     "malloc devolveu NULL! (%d bytes)\n",
-			     -1, (int) (sizeof (struct neighbors)));
+				 "malloc devolveu NULL! (%d bytes)\n",
+				 -1, (int) (sizeof (struct neighbors)));
 		exit( EXIT_FAILURE);
 	}
 	for (i = 0; i < 6; ++i) {
@@ -340,6 +340,34 @@ neighbors *neighborn( hex *H[], position p) {
 		};
 	}
 	return nbs;
+}
+
+float hexDist( hex *H[], position p, position q) {
+
+	/* Coordenadas cubicas temporárias */
+	int x1, y1, z1, x2, y2, z2;
+
+	/* Primeiro transformamos de coordenadas offset para cubica
+		x = q - (r + (r & 1)) / 2
+		z = r
+		y = - x - z
+	*/
+	x1 = p.col - (p.row + (p.row & 1)) / 2;
+	z1 = p.row;
+	y1 = - x1 - z1;
+
+	x2 = q.col - (q.row + (q.row & 1)) / 2;
+	z2 = q.col;
+	y2 = - x2 - z2;
+
+	/*
+		E depois calculamos a distância como cubica através da fórmula abaixo e retornamos o valor inteiro
+
+		function hex_distance(Cube(x1, y1, z1), Cube(x2, y2, z2)):
+			return (abs(x1 - x2) + abs(y1 - y2) + abs(z1 - z2)) / 2
+	*/
+
+	return (abs( x1 - x2) + abs( y1 - y2) + abs( z1 - z2)) / 2;
 }
 
 /*
@@ -371,7 +399,8 @@ void destroyHexGrid( hex *H[]) {
 int main( int argc, char *argv[]) {
 	bugsmove *bugspos;			/* Bug's positions vector */
 	hex **H;					/* Hex Matrix (Hex Grid) */
-
+	position p, q;
+/*
 	if (argc < 12) {
 		fprintf( stderr,
 				 "%d - Modo de uso:\n\t$ .%s L A j s C th_min th_max pc nc pf nf T P\n\n",
@@ -396,14 +425,22 @@ int main( int argc, char *argv[]) {
 
 	scanf( " %u %u %u %u %u %u %u %u %u %u %u %u %u",
 		   &L, &A, &j, &s, &C, &th_min, &th_max, &pc, &nc, &pf, &nf, &T, &P);
-
+*/
+	L = 5; A = 10;
 	H = createHexGrid( A, L);
+/*
 	bugspos = createBugs( H);
 
 	startSimulation( H, bugspos);
 
 	killBugs( bugspos);
 	destroyHexGrid( H);
+*/
+	p.row = 0;
+	p.col = 1;
+	q.row = 1;
+	p.col = 1;
+	printf ( "%f\n%f\n", (0 & 1), hexDist( H, p, q));
 
 	return EXIT_SUCCESS;
 }
