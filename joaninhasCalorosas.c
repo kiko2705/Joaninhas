@@ -343,31 +343,10 @@ neighbors *neighborn( hex *H[], position p) {
 }
 
 float hexDist( hex *H[], position p, position q) {
-
-	/* Coordenadas cubicas temporárias */
-	int x1, y1, z1, x2, y2, z2;
-
-	/* Primeiro transformamos de coordenadas offset para cubica
-		x = q - (r + (r & 1)) / 2
-		z = r
-		y = - x - z
-	*/
-	x1 = p.col - (p.row + (p.row & 1)) / 2;
-	z1 = p.row;
-	y1 = - x1 - z1;
-
-	x2 = q.col - (q.row + (q.row & 1)) / 2;
-	z2 = q.col;
-	y2 = - x2 - z2;
-
-	/*
-		E depois calculamos a distância como cubica através da fórmula abaixo e retornamos o valor inteiro
-
-		function hex_distance(Cube(x1, y1, z1), Cube(x2, y2, z2)):
-			return (abs(x1 - x2) + abs(y1 - y2) + abs(z1 - z2)) / 2
-	*/
-
-	return (abs( x1 - x2) + abs( y1 - y2) + abs( z1 - z2)) / 2;
+	float x, y;
+	x = abs( p.row - q.row) * sqrt( 3) / 2;
+	y = abs( p.col - q.col) - (float) ((p.row + q.row) & 1) / 2;
+	return sqrt( x * x + y * y);
 }
 
 /*
@@ -436,11 +415,13 @@ int main( int argc, char *argv[]) {
 	killBugs( bugspos);
 	destroyHexGrid( H);
 */
-	p.row = 0;
+	p.row = 1;
 	p.col = 1;
-	q.row = 1;
-	p.col = 1;
-	printf ( "%f\n%f\n", (0 & 1), hexDist( H, p, q));
+	q.row = 3;
+	q.col = 1;
+	printf ( "\nD(%d,%d)->(%d,%d)= %f\n", p.row, p.col, q.row, q.col, hexDist( H, p, q));
+	/*printf ( "\n%d\n", (6 & 1));*/
+	/*printf ( "\n%d\n", (3 / 2));*/
 
 	return EXIT_SUCCESS;
 }
