@@ -52,7 +52,7 @@
  * MACROS
  *******/
 
-#define TOL 0.05
+#define TOL 1.00
 
 #ifndef M_PI
 	#define M_PI 3.14159265358979323846  /* pi in math.h */
@@ -87,7 +87,7 @@
  ********/
 
 typedef enum { VACANT = 0, LADYBUG, HOT, COLD } occupation;
-typedef enum { D_HOT = 0, D_COLD = 1 } disOccupation;
+typedef enum { D_HOT = 0, D_COLD = 1 } disType;
 typedef enum { EVEN, ODD } parity;
 /*
 typedef occupation hex;
@@ -129,11 +129,6 @@ typedef struct bug {
 	int movesflag;
 } bug;
 
-typedef struct cell {
-	dposition elem;
-	struct cell *next;
-} cell;
-
 typedef struct entData {
 	unsigned int A, L, j, s, C, th_min, th_max, nc, nf, T, P, sem;
 	float pc, pf;	/* prob em decimal */
@@ -146,9 +141,9 @@ typedef struct entData {
  * sources e expansivel mais (A*L-j)-(pf+TOL)*A*L, totalizando A*L-j).
  */
 struct disturbs {
-	dposition *pos[2];
-	int begin[2];
-	int end[2];
+	dposition *pos;
+	int begin;
+	int end;
 	int size;
 	int ncycle;
 	float prob;
@@ -233,8 +228,17 @@ bug *createBugs( hex *H[], entData *data) {
 			i++; k++;
 		}
 	}
-MSG_DBG( "Cheguei aqui\n");
 	return p;
+}
+
+void showBugs( bug ladybug[], int nbugs) {
+	int b;
+	for (b = 0; b < nbugs; ++b) {
+		printf( "H( %d, %d)\n", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
+MSG_DBG( "H( %d, %d)", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
+
+	}
+	printf( "\n");
 }
 
 /*
@@ -250,84 +254,59 @@ void QUEUEinit( disturbs dis[], const entData *data) {
 	dis[D_COLD].ncycle = data->nf;
 	for (I = D_HOT; I <= D_COLD; ++I) {
 		dis[I].size = ceil( min( dis[I].prob + TOL, 1.0) * data->L * data->A);
-		dis[I].begin[0] = 0;
-		dis[I].end[0] = 0;
-		dis[I].begin[1] = 0;
-		dis[I].end[1] = 0;
-		dis[I].pos[0] = (dposition *) malloc( dis[I].size * sizeof (dposition));
-		dis[I].pos[1] = NULL;
-		if (dis[I].pos[0] == NULL) {
+		dis[I].begin = 0;
+		dis[I].end = 0;
+		dis[I].pos = (dposition *) malloc( dis[I].size * sizeof (dposition));
+		if (dis[I].pos == NULL) {
 			fprintf( stderr, "%d - A memoria estourou! Socorro! "
 					 "malloc devolveu NULL! (%d bytes)\n",
 					 -1, (int) (dis[I].size * sizeof (struct dposition)));
 			exit( EXIT_FAILURE);
 		}
 	}
-MSG_DBG( "Cheguei aqui\n");
-}
-
-int QUEUEempty( const disturbs dis[]) {
-	int I;
-	for (I = D_HOT; I < D_COLD; ++I) {
-		if (dis[I].begin[0] != dis[I].end[0] || dis[I].begin[1] != dis[I].end[1])
-			return 0;
-	}
-	return 1;
 }
 
 /*
  *
  */
-void QUEUEput( disturbs dis[], disOccupation elem, int r_row, int q_col, unsigned int bornscycle) {
-	int k = 1;
-MSG_DBG( "Cheguei aqui\n");
-
-	/* verifica se dis[elem] esta vazio */
-	if (dis[elem].pos[k] == NULL || dis[elem].begin[k] == dis[elem].end[k])
-		--k;
+void QUEUEput( disturbs dis[], disType elem, int r_row, int q_col, unsigned int bornscycle) {
 	/* verifica se dis[elem] esta cheio e se estiver, aloca novas posicoes */
-	if (dis[elem].end[k] + 1 == dis[elem].begin[k] || (dis[elem].end[k] + 1 == dis[elem].size && dis[elem].begin[k] == 0)) {
-		if (dis[elem].pos[++k] == NULL) {
-			dis[elem].pos[k] = (dposition *) malloc( dis[elem].size * sizeof (dposition));
-			if (dis[elem].pos[k] == NULL) {
-				fprintf( stderr, "%d - A memoria estourou! Socorro! "
-						 "malloc devolveu NULL! (%d bytes)\n",
-						 -1, (int) (dis[k].size * sizeof (struct dposition)));
-				exit( EXIT_FAILURE);
-			}
-		}
-		else if (dis[elem].end[k] + 1 == dis[elem].begin[k] || (dis[elem].end[k] + 1 == dis[elem].size && dis[elem].begin[k] == 0)) {
-			printf( "\nSocorro! Fila vai transbordar!\n");
-			exit( EXIT_FAILURE);
-		}
+	if (dis[elem].end + 1 == dis[elem].begin || (dis[elem].end + 1 == dis[elem].size && dis[elem].begin == 0)) {
+		printf( "\nSocorro! Fila vai transbordar!\n");
+		exit( EXIT_FAILURE);
 	}
-	dis[elem].pos[k][dis[elem].end[k]].pos.row = r_row;
-	dis[elem].pos[k][dis[elem].end[k]].pos.col = q_col;
-	dis[elem].pos[k][dis[elem].end[k]].energy = 0.0;
-	dis[elem].pos[k][dis[elem].end[k]].bornscycle = bornscycle;
-	(dis[elem].end[k] + 1 == dis[elem].size) ? dis[elem].end[k] = 0 : dis[elem].end[k]++;
-MSG_DBG( "Cheguei aqui\n");
+	dis[elem].pos[dis[elem].end].pos.row = r_row;
+	dis[elem].pos[dis[elem].end].pos.col = q_col;
+	dis[elem].pos[dis[elem].end].energy = 0.0;
+	dis[elem].pos[dis[elem].end].bornscycle = bornscycle;
+	(dis[elem].end + 1 == dis[elem].size) ? dis[elem].end = 0 : dis[elem].end++;
+
+if (elem == D_HOT)
+MSG_DBG( "HOT (%d, %d) : begin = %d : end = %d : size = %d", r_row, q_col, dis[elem].begin, dis[elem].end, dis[elem].size);
+else
+MSG_DBG( "COLD (%d, %d) : begin = %d : end = %d : size = %d", r_row, q_col, dis[elem].begin, dis[elem].end, dis[elem].size);
 
 }
 
 void QUEUEupdate( hex *H[], disturbs dis[], unsigned int cycle) {
-	int I, k;
+	int I;
 	for (I = D_HOT; I < D_COLD; ++I) {
-		for (k = 0; k < 2 && dis[I].begin[k] != dis[I].end[k]; ++k)
-			while (dis[I].pos[k]->bornscycle + dis[I].ncycle <= cycle) {
-				H[dis[I].pos[k]->pos.row][dis[I].pos[k]->pos.col].elem = VACANT;
-				(dis[I].begin[k] + 1 == dis[I].size) ? dis[I].begin[k] = 0 : dis[I].begin[k]++;
+		if (dis[I].begin != dis[I].end)
+			while (dis[I].pos[dis[I].begin].bornscycle + dis[I].ncycle <= cycle && dis[I].begin != dis[I].end) {
+MSG_DBG( "bornscycle = %u : cycle = %u", dis[I].pos[dis[I].begin].bornscycle, cycle);
+
+				H[dis[I].pos[dis[I].begin].pos.row][dis[I].pos[dis[I].begin].pos.col].elem = VACANT;
+				(dis[I].begin + 1 == dis[I].size) ? dis[I].begin = 0 : dis[I].begin++;
 			}
 	}
 }
 
 void QUEUEfree( disturbs dis[]) {
-	int i, I;
-	for (I = D_HOT; I < D_COLD; ++I)
-		for (i = 0; i < 2; ++i) {
-			if (dis[I].pos[i] != NULL)
-				free( dis[I].pos[i]);
-		}
+	int I;
+	for (I = D_HOT; I < D_COLD; ++I){
+		if (dis[I].pos != NULL)
+			free( dis[I].pos);
+	}
 }
 
 /*
@@ -341,8 +320,6 @@ void generateDisturbs( hex *H[], disturbs dis[], entData *data, unsigned int cyc
 			if (H[a][l].elem == VACANT) {
 				if (rand_r( &data->sem) / (RAND_MAX + 1.0) <= data->pc) {
 					H[a][l].elem = HOT;
-MSG_DBG( "Cheguei aqui\n");
-
 					QUEUEput( dis, D_HOT, a, l, cycle);
 				}
 				else if (rand_r( &data->sem) / (RAND_MAX + 1.0) <= data->pf) {
@@ -434,6 +411,7 @@ void bugsMove( hex *H[], const entData *data, bug ladybug[]) {
 			ladybug[b1].movesflag = 0;
 		}
 	}
+	showBugs( ladybug, data->j);
 }
 
 /*
@@ -462,26 +440,21 @@ float partialEnergy( position p, position q, occupation q_elem) {
  * Importante: sempre que mover uma joaninha, deve-se zerar a energia de sua
  * posicao, de todos os seus vizinhos e ainda o amount (numero de vizinhos).
  */
-float disturbsEnergy( eposition orig, disturbs dis[], unsigned int C) {
+float disturbsEnergy( eposition *orig, disturbs dis[], unsigned int C) {
 	int c, I;
-	if (orig.energy == 0.0) {
+	if (orig->energy == 0.0) {
 		/*#pragma omp parallel for private (x) reduction (+: sum)*/
 		for (I = D_HOT; I < D_COLD; ++I) {
 			/*#pragma omp parallel for private (x) reduction (+: sum)*/
-			for (c = dis[I].begin[0]; c != dis[I].end[0];) {
-				orig.energy += partialEnergy( orig.pos, dis[I].pos[0][c].pos, HOT);
+			for (c = dis[I].begin; c != dis[I].end;) {
+				orig->energy += partialEnergy( orig->pos, dis[I].pos[c].pos, HOT);
 				(c + 1 == dis[I].size) ? c = 0 : c++;
 			}
-			if (dis[I].pos[1] != NULL && dis[I].begin[1] != dis[I].end[1]) {
-				for (c = dis[I].begin[1]; c != dis[I].end[1];) {
-					orig.energy += partialEnergy( orig.pos, dis[I].pos[1][c].pos, COLD);
-					(c + 1 == dis[I].size) ? c = 0 : c++;
-				}
-			}
 		}
-		orig.energy *= C;
 	}
-	return orig.energy;
+MSG_DBG( "H( %d, %d) : energy = %f", orig->pos.row, orig->pos.col, orig->energy);
+
+	return orig->energy;
 }
 
 void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data) {
@@ -490,20 +463,27 @@ void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data) {
 	/*#pragma omp parallel for private (x) reduction (+: sum)*/
 	for (b1 = 0; b1 < data->j; ++b1) {
 		neighbornsBugs( H, data->L, data->A, ladybug, data->j);
+		/* if (ladybug[b1].orig.energy == 0.0) */
+		(void) disturbsEnergy( &ladybug[b1].orig, dis, data->C);
 		/*#pragma omp parallel*/
 		/*#pragma omp parallel for private (x) reduction (+: sum)*/
 		for (b2 = 0; b2 < data->j; ++b2) {
-			(void) disturbsEnergy( ladybug[b1].orig, dis, data->C);
 			if (b2 != b1) {
 				ladybug[b1].orig.energy += partialEnergy( ladybug[b1].orig.pos, ladybug[b2].orig.pos, LADYBUG);
 			}
-			ladybug[b1].orig.energy *= data->C;
 		}
+		ladybug[b1].orig.energy *= data->C;
+MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
+
 		if (ladybug[b1].amount > 0) {
-			minE = maxE = disturbsEnergy( ladybug[b1].neighbor[0], dis, data->C);
+			minE = maxE = disturbsEnergy( &ladybug[b1].neighbor[0], dis, data->C);
 			minIndex = maxIndex = 0;
+MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[0].pos.row, ladybug[b1].neighbor[0].pos.col, ladybug[b1].neighbor[0].energy);
+
 			for (k = 1; k < ladybug[b1].amount; ++k) {
-				tmpE = disturbsEnergy( ladybug[b1].neighbor[k], dis, data->C);
+				tmpE = disturbsEnergy( &ladybug[b1].neighbor[k], dis, data->C);
+MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[k].pos.row, ladybug[b1].neighbor[k].pos.col, ladybug[b1].neighbor[k].energy);
+
 				if (tmpE < minE) {
 					minE = tmpE;
 					minIndex = k;
@@ -529,7 +509,6 @@ void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data) {
 }
 
 void nextCycle( hex *H[], disturbs dis[], entData *data, unsigned int cycle) {
-	++cycle;
 	QUEUEupdate( H, dis, cycle);
 	generateDisturbs( H, dis, data, cycle);
 }
@@ -543,25 +522,13 @@ int startSimulation( hex *H[], bug ladybug[], entData *data) {
 	disturbs dis[2];
 
 	QUEUEinit( dis, data);
-MSG_DBG( "Cheguei aqui\n");
 
-	for (cycle = 0; cycle < data->T; ++cycle) {
+	for (cycle = 1; cycle <= data->T; ++cycle) {
 		nextCycle( H, dis, data, cycle);
-MSG_DBG( "Cheguei aqui\n");
-
 		bugsEnergy( H, dis, ladybug, data);
 	}
 
 	return EXIT_SUCCESS;
-}
-
-void showBugs( bug ladybug[], int nbugs) {
-	int b;
-	for (b = 0; b < nbugs; ++b) {
-		printf( "\n");
-		printf( "H( %d, %d)\n", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
-	}
-	printf( "\n");
 }
 
 void killBugs( bug *ladybug) {
@@ -577,6 +544,7 @@ void destroyHexGrid( hex *H[]) {
 */
 
 int main( int argc, char *argv[]) {
+	int i;
 	entData data;
 	bug *ladybug;			/* Bug's positions vector */
 	hex **H;				/* Hex Matrix (Hex Grid) */
@@ -609,21 +577,25 @@ int main( int argc, char *argv[]) {
 */
 	/* verificar: th_min < th_max */
 	data.L = 10;
-	data.A = 5;
+	data.A = 10;
 	data.j = 3;
 	data.s = 0;
 	data.C = 1;
 	data.th_min = 2.0;
 	data.th_max = 2.5;
-	data.pc = 0.0;
-	data.nc = 1;
-	data.pf = 0.0;
+	data.pc = 0.3;
+	data.nc = 2;
+	data.pf = 0.3;
 	data.nf = 1;
-	data.T = 3;
+	data.T = 10;
 	data.P = 1;
 
 	H = createHexGrid( &data);
 	ladybug = createBugs( H, &data);
+/*
+for (i = 0; i < data.j; ++i)
+MSG_DBG( "H( %d, %d) : energy = %f", ladybug[i].orig.pos.row, ladybug[i].orig.pos.col, ladybug[i].orig.energy);
+*/
 	showBugs( ladybug, data.j);
 	startSimulation( H, ladybug, &data);
 	showBugs( ladybug, data.j);
@@ -635,9 +607,11 @@ int main( int argc, char *argv[]) {
 	p.col = 1;
 	q.row = 3;
 	q.col = 1;
-	/*printf( "\nD(%d,%d)->(%d,%d)= %f\n", p.row, p.col, q.row, q.col, hexDist( p, q));*/
-	/*printf( "\n%d\n", (6 & 1));*/
-	/*printf( "\n%d\n", (3 / 2));*/
+/*
+	printf( "\nD(%d,%d)->(%d,%d)= %f\n", p.row, p.col, q.row, q.col, hexDist( p, q));
+	printf( "\n%d\n", (6 & 1));
+	printf( "\n%d\n", (3 / 2));
+*/
 
 	return EXIT_SUCCESS;
 }
