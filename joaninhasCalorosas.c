@@ -44,6 +44,8 @@
 
 #include <math.h> /* 'linkagem' com '-lm': gcc fontes.c bibs.h -o exec -lm */
 #include <time.h>
+/*#include <sys/time.h>*/
+#include <unistd.h>
 
 /*#include <mpi.h>*/
 #include <omp.h>
@@ -80,6 +82,19 @@
 										__LINE__, ##__VA_ARGS__)
 #else
    #define MSG_DBG( fmt, ...) {;}
+#endif
+
+/* Ref.:
+ * http://cboard.cprogramming.com/linux-programming/113208-portable-method-
+ * accessing-cpu-time-given-process.html
+ * TELLTIME;
+ ******************************************************************************/
+#ifdef _POSIX_CPUTIME
+	#define STARTTIME() diff = clock()
+	#define TELLTIME() diff = clock() -diff; MSG_DBG( "Time Elapsed = %f\n", (double) ((double) diff/CLOCKS_PER_SEC))
+	#define TELLTIME2() fprintf( stdout, "Time Elapsed: %G seconds.\t(%s: %d)\n", \
+							  (double) ((double) clock( )/CLOCKS_PER_SEC), \
+							  __FUNCTION__, __LINE__);
 #endif
 
 /*********
@@ -156,6 +171,8 @@ typedef struct disturbs disturbs;
 
 /*static unsigned int cycle;*/
 
+clock_t diff;
+
 /************
  * PROTOTYPES
  ***********/
@@ -182,19 +199,19 @@ void *mallocX( unsigned int nbytes) {
  */
 hex **createHexGrid( const entData *data) {
 	int a, l;
-	hex **H = (hex **) malloc( data->A * sizeof (hex *));
+	hex **H = (hex **) malloc( data->A * sizeof (struct hex *));
 	if (H == NULL) {
 		fprintf( stderr, "%d - A memoria estourou! Socorro! "
 				 "malloc devolveu NULL! (%d bytes)\n",
-				 -1, (int) (data->A * sizeof (hex *)));
+				 -1, (int) (data->A * sizeof (struct hex *)));
 		exit( EXIT_FAILURE);
 	}
 	for (a = 0; a < data->A; ++a) {
-		H[a] = (hex *) malloc( data->L * sizeof (hex));
+		H[a] = (hex *) malloc( data->L * sizeof (struct hex));
 		if (H[a] == NULL) {
 			fprintf( stderr, "%d - A memoria estourou! Socorro! "
 					 "malloc devolveu NULL! (%d bytes)\n",
-					 -1, (int) (data->L * sizeof (hex)));
+					 -1, (int) (data->L * sizeof (struct hex)));
 			exit( EXIT_FAILURE);
 		}
 		for (l = 0; l < data->L; ++l) {
@@ -256,7 +273,7 @@ void QUEUEinit( disturbs dis[], const entData *data) {
 		dis[I].size = ceil( min( dis[I].prob + TOL, 1.0) * data->L * data->A);
 		dis[I].begin = 0;
 		dis[I].end = 0;
-		dis[I].pos = (dposition *) malloc( dis[I].size * sizeof (dposition));
+		dis[I].pos = (dposition *) malloc( dis[I].size * sizeof (struct dposition));
 		if (dis[I].pos == NULL) {
 			fprintf( stderr, "%d - A memoria estourou! Socorro! "
 					 "malloc devolveu NULL! (%d bytes)\n",
@@ -332,28 +349,39 @@ void generateDisturbs( hex *H[], disturbs dis[], entData *data, unsigned int cyc
 }
 
 /*
-neighbors *neighborn( hex *H[], int L, int A, position p) {
-*/
+ * Calcula vizinhos vazios de cada joaninha.
+ *
+ * Even-r layout:
+ * paritying=0 => even-r (i=0,2,4,...):
+ * 		E=r,q+1;NE=r-1,q+1;NW=r-1,q;W=r,q-1;SW=r+1,q;SE=r+1,q+1
+ * paritying=1 => odd-r  (i=1,3,5,...):
+ * 		E=r,q+1;NE=r-1,q;NW=r-1,q-1;W=r,q-1;SW=r+1,q-1;SE=r+1,q
+ */
 void neighbornsBugs( hex *H[], int L, int A, bug ladybug[], int nbugs) {
 	int i, j, k,
 		paritying,
 		row, col;
 	int directions[2][6][2] = {
-		{ {  0, +1 }, { -1,  0 }, { -1, -1 }, {  0, -1 }, { +1, -1 }, { +1,  0 } },
-		{ {  0, +1 }, { -1, +1 }, { -1,  0 }, {  0, -1 }, { +1,  0 }, { +1, +1 } }
-	};
+		{ {  0, +1 }, { -1, +1 }, { -1,  0 }, {  0, -1 }, { +1,  0 }, { +1, +1 } },
+		{ {  0, +1 }, { -1,  0 }, { -1, -1 }, {  0, -1 }, { +1, -1 }, { +1,  0 } }
+	}; /* even-r layout - E,NE,NW,W,SW,SE */
 	for (j = 0; j < nbugs; ++j) {
 		paritying = ladybug[j].orig.pos.row & 1;
+MSG_DBG( "\nJ( %d, %d)", ladybug[j].orig.pos.row, ladybug[j].orig.pos.col);
+
 		for (i = 0, k = 0; i < 6; ++i) {
 			row = ladybug[j].orig.pos.row + directions[paritying][i][0];
 			col = ladybug[j].orig.pos.col + directions[paritying][i][1];
-			if (row > 0 && row < A && col > 0 && col < L && H[row][col].elem == VACANT) {
+			if (row >= 0 && row < A && col >= 0 && col < L && H[row][col].elem == VACANT) {
 				ladybug[j].neighbor[k].pos.row = row;
 				ladybug[j].neighbor[k].pos.col = col;
 				ladybug[j].neighbor[k].energy = 0.0;
 				ladybug[j].amount = ++k;
+MSG_DBG( "H( %d, %d) : paritying = %d : i = %d", row, col, paritying, i);
+
 			}
 		}
+MSG_DBG( "\n");
 	}
 }
 
@@ -369,10 +397,12 @@ void bugsMove( hex *H[], const entData *data, bug ladybug[]) {
 		if (ladybug[b1].movesflag == 1) {
 			paritying = ladybug[b1].dest.pos.row & 1;
 			for (i = 0, b2 = b1; i < 6; ++i) {
+MSG_DBG( "b1 = %d : b2 = %d : i = %d", b1, b2, i);
+
 				row = ladybug[b2].dest.pos.row + directions[paritying][i][0];
 				col = ladybug[b2].dest.pos.col + directions[paritying][i][1];
-				if (ladybug[H[row][col].index].movesflag == 1 && row > 0 &&
-				  row < data->A && col > 0 && col < data->L && H[row][col].elem == LADYBUG) {
+				if (ladybug[H[row][col].index].movesflag == 1 && row >= 0 &&
+				  row < data->A && col >= 0 && col < data->L && H[row][col].elem == LADYBUG) {
 					if (ladybug[H[row][col].index].dest.pos.row == ladybug[b2].dest.pos.row &&
 					  ladybug[H[row][col].index].dest.pos.col == ladybug[b2].dest.pos.col) {
 						if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b2].dest.energy)
@@ -482,7 +512,9 @@ MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[0].pos.row, ladybug[b1
 
 			for (k = 1; k < ladybug[b1].amount; ++k) {
 				tmpE = disturbsEnergy( &ladybug[b1].neighbor[k], dis, data->C);
-MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[k].pos.row, ladybug[b1].neighbor[k].pos.col, ladybug[b1].neighbor[k].energy);
+MSG_DBG( "H( %d, %d) : energy = %f : k = %d/%d",
+	ladybug[b1].neighbor[k].pos.row, ladybug[b1].neighbor[k].pos.col, ladybug[b1].neighbor[k].energy,
+	k, ladybug[b1].amount);
 
 				if (tmpE < minE) {
 					minE = tmpE;
@@ -506,6 +538,8 @@ MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[k].pos.row, ladybug[b1
 		}
 	}
 	bugsMove( H, data, ladybug);
+MSG_DBG( "I'm here!!");
+
 }
 
 void nextCycle( hex *H[], disturbs dis[], entData *data, unsigned int cycle) {
@@ -524,6 +558,8 @@ int startSimulation( hex *H[], bug ladybug[], entData *data) {
 	QUEUEinit( dis, data);
 
 	for (cycle = 1; cycle <= data->T; ++cycle) {
+MSG_DBG( "\ncycle = %u", cycle);
+
 		nextCycle( H, dis, data, cycle);
 		bugsEnergy( H, dis, ladybug, data);
 	}
@@ -544,7 +580,6 @@ void destroyHexGrid( hex *H[]) {
 */
 
 int main( int argc, char *argv[]) {
-	int i;
 	entData data;
 	bug *ladybug;			/* Bug's positions vector */
 	hex **H;				/* Hex Matrix (Hex Grid) */
@@ -576,15 +611,15 @@ int main( int argc, char *argv[]) {
 		   &L, &A, &j, &s, &C, &th_min, &th_max, &pc, &nc, &pf, &nf, &T, &P);
 */
 	/* verificar: th_min < th_max */
-	data.L = 10;
-	data.A = 10;
+	data.L = 5;
+	data.A = 3;
 	data.j = 3;
 	data.s = 0;
 	data.C = 1;
-	data.th_min = 2.0;
-	data.th_max = 2.5;
+	data.th_min = 1.25;
+	data.th_max = 2.0;
 	data.pc = 0.3;
-	data.nc = 2;
+	data.nc = 1;
 	data.pf = 0.3;
 	data.nf = 1;
 	data.T = 10;
@@ -597,7 +632,9 @@ for (i = 0; i < data.j; ++i)
 MSG_DBG( "H( %d, %d) : energy = %f", ladybug[i].orig.pos.row, ladybug[i].orig.pos.col, ladybug[i].orig.energy);
 */
 	showBugs( ladybug, data.j);
+STARTTIME();
 	startSimulation( H, ladybug, &data);
+TELLTIME();
 	showBugs( ladybug, data.j);
 /*
 	killBugs( ladybug);
