@@ -377,11 +377,12 @@ MSG_DBG( "\nJ( %d, %d)", ladybug[j].orig.pos.row, ladybug[j].orig.pos.col);
 				ladybug[j].neighbor[k].pos.col = col;
 				ladybug[j].neighbor[k].energy = 0.0;
 				ladybug[j].amount = ++k;
-MSG_DBG( "H( %d, %d) : paritying = %d : i = %d", row, col, paritying, i);
+MSG_DBG( "J( %d, %d)->H( %d, %d) : paritying = %d : i = %d", ladybug[j].orig.pos.row, ladybug[j].orig.pos.col, row, col, paritying, i);
 
 			}
 		}
 MSG_DBG( "\n");
+
 	}
 }
 
@@ -395,14 +396,16 @@ void bugsMove( hex *H[], const entData *data, bug ladybug[]) {
 	};
 	for (b1 = 0; b1 < data->j; ++b1) {
 		if (ladybug[b1].movesflag == 1) {
-			paritying = ladybug[b1].dest.pos.row & 1;
 			for (i = 0, b2 = b1; i < 6; ++i) {
-MSG_DBG( "b1 = %d : b2 = %d : i = %d", b1, b2, i);
+MSG_DBG( "b1 = %d J( %d, %d) : b2 = %d : i = %d",
+	b1, ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, b2, i);
 
+				paritying = ladybug[b2].dest.pos.row & 1;
 				row = ladybug[b2].dest.pos.row + directions[paritying][i][0];
 				col = ladybug[b2].dest.pos.col + directions[paritying][i][1];
-				if (ladybug[H[row][col].index].movesflag == 1 && row >= 0 &&
-				  row < data->A && col >= 0 && col < data->L && H[row][col].elem == LADYBUG) {
+				if (row >= 0 && row < data->A && col >= 0 && col < data->L &&
+				  H[row][col].elem == LADYBUG && H[row][col].index != b2 &&
+				  ladybug[H[row][col].index].movesflag == 1) {
 					if (ladybug[H[row][col].index].dest.pos.row == ladybug[b2].dest.pos.row &&
 					  ladybug[H[row][col].index].dest.pos.col == ladybug[b2].dest.pos.col) {
 						if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b2].dest.energy)
@@ -436,6 +439,9 @@ MSG_DBG( "b1 = %d : b2 = %d : i = %d", b1, b2, i);
 			H[ladybug[b1].orig.pos.row][ladybug[b1].orig.pos.col].index = NOCALC;
 			ladybug[b1].orig.pos.row = ladybug[b1].dest.pos.row;
 			ladybug[b1].orig.pos.col = ladybug[b1].dest.pos.col;
+			ladybug[b1].orig.energy = 0.0;
+			ladybug[b1].dest.energy = 0.0;
+			ladybug[b1].amount = 0;
 			H[ladybug[b1].orig.pos.row][ladybug[b1].orig.pos.col].elem = LADYBUG;
 			H[ladybug[b1].orig.pos.row][ladybug[b1].orig.pos.col].index = b1;
 			ladybug[b1].movesflag = 0;
@@ -482,8 +488,6 @@ float disturbsEnergy( eposition *orig, disturbs dis[], unsigned int C) {
 			}
 		}
 	}
-MSG_DBG( "H( %d, %d) : energy = %f", orig->pos.row, orig->pos.col, orig->energy);
-
 	return orig->energy;
 }
 
@@ -491,49 +495,66 @@ void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data) {
 	int b1, b2, k, minIndex, maxIndex;
 	float minE, maxE, tmpE;
 	/*#pragma omp parallel for private (x) reduction (+: sum)*/
+	neighbornsBugs( H, data->L, data->A, ladybug, data->j);
 	for (b1 = 0; b1 < data->j; ++b1) {
-		neighbornsBugs( H, data->L, data->A, ladybug, data->j);
 		/* if (ladybug[b1].orig.energy == 0.0) */
 		(void) disturbsEnergy( &ladybug[b1].orig, dis, data->C);
 		/*#pragma omp parallel*/
 		/*#pragma omp parallel for private (x) reduction (+: sum)*/
+MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
+
 		for (b2 = 0; b2 < data->j; ++b2) {
 			if (b2 != b1) {
 				ladybug[b1].orig.energy += partialEnergy( ladybug[b1].orig.pos, ladybug[b2].orig.pos, LADYBUG);
+MSG_DBG( "b1= %d ( %d, %d) : b2= %d ( %d, %d)", b1, ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, b2, ladybug[b2].orig.pos.row, ladybug[b2].orig.pos.col);
 			}
+MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
+
 		}
+MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
+
 		ladybug[b1].orig.energy *= data->C;
-MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
+MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
 
 		if (ladybug[b1].amount > 0) {
 			minE = maxE = disturbsEnergy( &ladybug[b1].neighbor[0], dis, data->C);
 			minIndex = maxIndex = 0;
-MSG_DBG( "H( %d, %d) : energy = %f", ladybug[b1].neighbor[0].pos.row, ladybug[b1].neighbor[0].pos.col, ladybug[b1].neighbor[0].energy);
+MSG_DBG( "H( %d, %d) : energy = %f : k = %d/%d",
+	ladybug[b1].neighbor[0].pos.row, ladybug[b1].neighbor[0].pos.col, ladybug[b1].neighbor[0].energy,
+	0, ladybug[b1].amount -1);
 
 			for (k = 1; k < ladybug[b1].amount; ++k) {
 				tmpE = disturbsEnergy( &ladybug[b1].neighbor[k], dis, data->C);
 MSG_DBG( "H( %d, %d) : energy = %f : k = %d/%d",
 	ladybug[b1].neighbor[k].pos.row, ladybug[b1].neighbor[k].pos.col, ladybug[b1].neighbor[k].energy,
-	k, ladybug[b1].amount);
+	k, ladybug[b1].amount -1);
 
 				if (tmpE < minE) {
 					minE = tmpE;
 					minIndex = k;
 				}
-				if (tmpE > maxE) {
+				else if (tmpE > maxE) {
 					maxE = tmpE;
-					minIndex = k;
+					maxIndex = k;
 				}
 			}
 			if (ladybug[b1].orig.energy < data->th_min) { /* procura fogo */
 				ladybug[b1].dest.pos.row = ladybug[b1].neighbor[maxIndex].pos.row;
 				ladybug[b1].dest.pos.col = ladybug[b1].neighbor[maxIndex].pos.col;
+				ladybug[b1].dest.energy = maxE;
 				ladybug[b1].movesflag = 1;
+MSG_DBG( "J( %d, %d) -> H( %d, %d) - Procura Fogo", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col,
+	ladybug[b1].dest.pos.row, ladybug[b1].dest.pos.col);
+
 			}
 			else if (ladybug[b1].orig.energy > data->th_min) { /* procura gelo */
 				ladybug[b1].dest.pos.row = ladybug[b1].neighbor[minIndex].pos.row;
 				ladybug[b1].dest.pos.col = ladybug[b1].neighbor[minIndex].pos.col;
+				ladybug[b1].dest.energy = minE;
 				ladybug[b1].movesflag = 1;
+MSG_DBG( "J( %d, %d) -> H( %d, %d) - Procura Gelo", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col,
+	ladybug[b1].dest.pos.row, ladybug[b1].dest.pos.col);
+
 			}
 		}
 	}
@@ -611,15 +632,15 @@ int main( int argc, char *argv[]) {
 		   &L, &A, &j, &s, &C, &th_min, &th_max, &pc, &nc, &pf, &nf, &T, &P);
 */
 	/* verificar: th_min < th_max */
-	data.L = 5;
-	data.A = 3;
+	data.L = 1000;
+	data.A = 1000;
 	data.j = 3;
 	data.s = 0;
 	data.C = 1;
 	data.th_min = 1.25;
 	data.th_max = 2.0;
 	data.pc = 0.3;
-	data.nc = 1;
+	data.nc = 2;
 	data.pf = 0.3;
 	data.nf = 1;
 	data.T = 10;
