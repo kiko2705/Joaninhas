@@ -632,18 +632,18 @@ int main( int argc, char *argv[]) {
 		   &L, &A, &j, &s, &C, &th_min, &th_max, &pc, &nc, &pf, &nf, &T, &P);
 */
 	/* verificar: th_min < th_max */
-	data.L = 1000;
-	data.A = 1000;
-	data.j = 3;
+	data.L = 500;
+	data.A = 500;
+	data.j = 10;
 	data.s = 0;
 	data.C = 1;
 	data.th_min = 1.25;
 	data.th_max = 2.0;
-	data.pc = 0.3;
+	data.pc = 0.4;
 	data.nc = 2;
 	data.pf = 0.3;
 	data.nf = 1;
-	data.T = 10;
+	data.T = 20;
 	data.P = 1;
 
 	H = createHexGrid( &data);
