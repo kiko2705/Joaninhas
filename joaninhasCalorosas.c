@@ -5,8 +5,10 @@
 
  ==============================================================================
  MAC0431 -- 28/11/2014 -- IME/USP, -- Prof. Marco Dimas Gubitoso
- Author      : Marcello Souza de Oliveira
- Num. USP    : 6432692
+ Author      : Marcello Souza de Oliveira, 6432692
+			 : Francisco Alexandre da Silva Gomes dos Santos, 794650
+			 : Mauricio Santana, 7991170
+
  Course      : Bacharelado em Ciencias da Computacao
 
  Name        : JoaninhasCalorosas.c
@@ -17,7 +19,7 @@
 
  Compiler         : gcc linux 4.6.3
  Compiler Options : -Wall -ansi -pedantic -O2 -U_FORTIFY_SOURCE
- Link Options     : -lm
+ Link Options     : -fopenmp -lm
  Editor           : Sublime Text 2, Geany 0.21, Code-Blocks 13.12;
  S.O.             : Linux
  ==============================================================================
@@ -33,16 +35,13 @@
  $ gcc -o joaninhasCalorosas joaninhasCalorosas.c -fopenmp -lm
  $ ./joaninhasCalorosas <params>
 
- How to execute:
- $ mpicc joaninhasCalorosas.c -o joaninhasCalorosas
- $ mpirun -np 4 ./joaninhasCalorosas <params>
  ==============================================================================
 */
 
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <math.h> /* 'linkagem' com '-lm': gcc fontes.c bibs.h -o exec -lm */
+#include <math.h> /* 'linking' com '-lm' flag: gcc fontes.c bibs.h -o exec -lm */
 #include <time.h>
 /*#include <sys/time.h>*/
 #include <unistd.h>
@@ -71,9 +70,8 @@
  * DEBUGING
  *********/
 
-#define DEBUG   	/* Habilita o modo de depuração */
-#define PRINT   	/* Habilita a impressao de resultados na tela */
-#define CONV 9  	/* Habilita a impressao da tab de convergencia */
+/*#define DEBUG*/   	/* Habilita o modo de depuração */
+#define PRINT   	/* Habilita a impressao de resultados no arquivo jc-out.txt */
 #define NOCALC -1
 
 #ifdef DEBUG
@@ -104,13 +102,17 @@
 typedef enum { VACANT = 0, LADYBUG, HOT, COLD } occupation;
 typedef enum { D_HOT = 0, D_COLD = 1 } disType;
 typedef enum { EVEN, ODD } parity;
+
 /*
-typedef occupation hex;
-typedef occupation **Hex;
-*/
+ * index: possibilita testar ao final dos calculos se duas joaninhas desejam
+ * se mover para o mesmo hex (devera prevalecer a com maior diferenca de
+ * energia para com a energia do hex destino, conforme enunciado), sem a
+ * necessidade de percorrer todo o vetor de joaninhas (mas pela indexação).
+ */
 typedef struct hex {
 	int index;			/* indice para o vetor de joaninhas */
 	occupation elem;
+	int sem;				/* semente atual */
 } hex;
 typedef hex **hexgrid;
 
@@ -121,23 +123,20 @@ typedef struct position {
 
 typedef struct dposition {
 	position pos;
-	float energy;
+	double energy;
 	unsigned int bornscycle;
 } dposition;
 
 typedef struct eposition {
 	position pos;
-	float energy;
+	double energy;
 } eposition;
 
 /*
- * possibilita testar ao final dos calculos se duas joaninhas desejam se mover
- * para o mesmo hex (devera prevalecer a com maior diferenca de energia para
- * com a energia do hex destino, conforme enunciado).
  * amount: 0 - 6 vizinhos possiveis (considera-se apenas hex's VAZIA's).
  */
 typedef struct bug {
-	eposition orig;		/* ATENCAO AQUI, posso ter de mallocar orig e dest */
+	eposition orig;
 	eposition dest;
 	eposition neighbor[6];
 	int amount;
@@ -145,16 +144,11 @@ typedef struct bug {
 } bug;
 
 typedef struct entData {
-	unsigned int A, L, j, s, C, th_min, th_max, nc, nf, T, P, sem;
+	unsigned int A, L, j, s, th_min, th_max, nc, nf, T, P, sem;
 	float pc, pf;	/* prob em decimal */
+	double C;
 } entData;
 
-/*
- * hotspos: hot's source dpositions array (aceita ate (pc+TOL)*A*L hot's
- * sources e expansivel mais (A*L-j)-(pc+TOL)*A*L, totalizando A*L-j).
- * coldspos: Cold's source dpositions array (aceita ate (pf+TOL)*A*L cold's
- * sources e expansivel mais (A*L-j)-(pf+TOL)*A*L, totalizando A*L-j).
- */
 struct disturbs {
 	dposition *pos;
 	int begin;
@@ -177,6 +171,142 @@ clock_t diff;
  * PROTOTYPES
  ***********/
 
+void *mallocX( unsigned int nbytes);
+
+hex **createHexGrid( const entData *data);
+
+void destroyHexGrid( hex *H[], const entData *data);
+
+bug *createBugs( hex *H[], entData *data);
+
+void showBugs( bug ladybug[], int nbugs);
+
+void killBugs( bug *ladybug);
+
+void QUEUEinit( disturbs dis[], const entData *data);
+
+void QUEUEput( disturbs dis[], disType elem, int r_row, int q_col, unsigned int bornscycle);
+
+void QUEUEupdate( hex *H[], disturbs dis[], unsigned int cycle);
+
+void QUEUEfree( disturbs dis[]);
+
+void generateDisturbs( hex *H[], disturbs dis[], entData *data, unsigned int cycle);
+
+void neighbornsBugs( hex *H[], int L, int A, bug ladybug[], int nbugs);
+
+void bugsMove( hex *H[], const entData *data, bug ladybug[]);
+
+double partialEnergy( position p, position q, occupation q_elem, double C);
+
+double disturbsEnergy( eposition *orig, disturbs dis[], double C);
+
+void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data);
+
+void nextCycle( hex *H[], disturbs dis[], entData *data, unsigned int cycle);
+
+int startSimulation( hex *H[], bug ladybug[], entData *data);
+
+/*
+ ==============================================================================
+*/
+
+/***************
+ * MAIN FUNCTION
+ **************/
+
+int main( int argc, char *argv[]) {
+	entData data;
+	bug *ladybug;			/* Bug's positions vector */
+	hex **H;				/* Hex Matrix (Hex Grid) */
+	position p, q;
+
+	if (argc == 1) {
+	/*
+		data.L = 500;
+		data.A = 500;
+		data.j = 10;
+		data.s = 0;
+		data.C = 1;
+		data.th_min = 1.25;
+		data.th_max = 2.0;
+		data.pc = 0.4;
+		data.nc = 2;
+		data.pf = 0.3;
+		data.nf = 1;
+		data.T = 20;
+		data.P = 1;
+	*/
+		data.L = 100;
+		data.A = 100;
+		data.j = 100;
+		data.s = 0;
+		data.C = 22.765;
+		data.th_min = 18;
+		data.th_max = 27;
+		data.pc = 0.1;
+		data.nc = 30;
+		data.pf = 0.1;
+		data.nf = 40;
+		data.T = 10000;
+		data.P = 2;
+	}
+	else if (argc < 14) {
+		fprintf( stderr,
+				 "%d - Modo de uso:\n\t$ .%s L A j s C th_min th_max pc nc pf nf T P\n\n",
+				 -1, argv[0]);
+		fprintf( stderr, "onde:\n"
+				 " L : largura do hex grid;\n"
+				 " A : altura do hex grid;\n"
+				 " j : num. de joaninhas;\n"
+				 " s : semente para gerador aleatorio;\n"
+				 " C : constante de emissao de calor de uma joaninha;\n");
+		fprintf( stderr,
+				 " th_min : menor temperatura que a joaninha considera confortavel;\n"
+				 " th_max : maior temperatura que a joaninha considera confortavel;\n"
+				 " pc : prob./hex de aparecer uma fonte de calor;\n"
+				 " nc : duracao em ciclos da fonte de calor;\n"
+				 " pf : prob./hex de aparecer uma fonte de frio;\n"
+				 " nf : duracao em ciclos da fonte de calor;\n"
+				 " T : num. de ciclos da simulacao;\n"
+				 " P : num. de threads na simulacao.\n\n");
+		exit( EXIT_FAILURE);
+	}
+	else {
+		scanf( " %u %u %u %u %lf %u %u %f %u %f %u %u %u",
+			   &data.L, &data.A, &data.j, &data.s, &data.C, &data.th_min, &data.th_max, &data.pc, &data.nc, &data.pf, &data.nf, &data.T, &data.P);
+	}
+
+	/* verificar: th_min < th_max */
+
+	H = createHexGrid( &data);
+	ladybug = createBugs( H, &data);
+/*
+for (i = 0; i < data.j; ++i)
+MSG_DBG( "H( %d, %d) : energy = %f", ladybug[i].orig.pos.row, ladybug[i].orig.pos.col, ladybug[i].orig.energy);
+*/
+/*
+	showBugs( ladybug, data.j);
+*/
+/*
+STARTTIME();
+*/
+	startSimulation( H, ladybug, &data);
+/*
+TELLTIME();
+*/
+	#ifdef PRINT
+		showBugs( ladybug, data.j);
+	#endif
+
+/*
+	killBugs( ladybug);
+	destroyHexGrid( H);
+*/
+
+	return EXIT_SUCCESS;
+}
+
 /***********
  * FUNCTIONS
  **********/
@@ -195,6 +325,8 @@ void *mallocX( unsigned int nbytes) {
 }
 
 /*
+ * Matriz Hexagonal. A distância ("euclidiana") entre os centros de 2
+ * hexágonos vizinhos é de uma unidade.
  * “even-r” horizontal layout.
  */
 hex **createHexGrid( const entData *data) {
@@ -217,9 +349,21 @@ hex **createHexGrid( const entData *data) {
 		for (l = 0; l < data->L; ++l) {
 			H[a][l].elem = VACANT;
 			H[a][l].index = data->j;
+			H[a][l].sem = ((a + 1) * data->s + l) % RAND_MAX;
 		}
 	}
 	return H;
+}
+
+void destroyHexGrid( hex *H[], const entData *data) {
+	int a, l;
+	if (H != NULL) {
+		for (a = 0; a < data->A; ++a) {
+			free (H[a]);
+		}
+		free (H);
+	}
+	return;
 }
 
 bug *createBugs( hex *H[], entData *data) {
@@ -250,12 +394,22 @@ bug *createBugs( hex *H[], entData *data) {
 
 void showBugs( bug ladybug[], int nbugs) {
 	int b;
-	for (b = 0; b < nbugs; ++b) {
-		printf( "H( %d, %d)\n", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
-MSG_DBG( "H( %d, %d)", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
+	FILE *out = fopen( "jc-out.txt", "w");
+	if (out != NULL) {
+		for (b = 0; b < nbugs; ++b) {
+			fprintf( out, "H( %d, %d)\n", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
+	MSG_DBG( "H( %d, %d)", ladybug[b].orig.pos.row, ladybug[b].orig.pos.col);
 
+		}
+		fprintf( out, "\n");
+		fclose( out);
 	}
-	printf( "\n");
+}
+
+void killBugs( bug *ladybug) {
+	if (ladybug != NULL)
+		free (ladybug);
+	return;
 }
 
 /*
@@ -297,12 +451,12 @@ void QUEUEput( disturbs dis[], disType elem, int r_row, int q_col, unsigned int 
 	dis[elem].pos[dis[elem].end].energy = 0.0;
 	dis[elem].pos[dis[elem].end].bornscycle = bornscycle;
 	(dis[elem].end + 1 == dis[elem].size) ? dis[elem].end = 0 : dis[elem].end++;
-
+/*
 if (elem == D_HOT)
 MSG_DBG( "HOT (%d, %d) : begin = %d : end = %d : size = %d", r_row, q_col, dis[elem].begin, dis[elem].end, dis[elem].size);
 else
 MSG_DBG( "COLD (%d, %d) : begin = %d : end = %d : size = %d", r_row, q_col, dis[elem].begin, dis[elem].end, dis[elem].size);
-
+*/
 }
 
 void QUEUEupdate( hex *H[], disturbs dis[], unsigned int cycle) {
@@ -332,19 +486,21 @@ void QUEUEfree( disturbs dis[]) {
 
 void generateDisturbs( hex *H[], disturbs dis[], entData *data, unsigned int cycle) {
 	int a, l;
-	for (a = 0; a < data->A; ++a)
+	for (a = 0; a < data->A; ++a) {
+		/*#pragma omp parallel for*/
 		for (l = 0; l < data->L; ++l) {
 			if (H[a][l].elem == VACANT) {
-				if (rand_r( &data->sem) / (RAND_MAX + 1.0) <= data->pc) {
+				if (rand_r( &H[a][l].sem) / (RAND_MAX + 1.0) <= data->pc) {
 					H[a][l].elem = HOT;
 					QUEUEput( dis, D_HOT, a, l, cycle);
 				}
-				else if (rand_r( &data->sem) / (RAND_MAX + 1.0) <= data->pf) {
+				else if (rand_r( &H[a][l].sem) / (RAND_MAX + 1.0) <= data->pf) {
 					H[a][l].elem = COLD;
 					QUEUEput( dis, D_COLD, a, l, cycle);
 				}
 			}
 		}
+	}
 	return;
 }
 
@@ -396,37 +552,49 @@ void bugsMove( hex *H[], const entData *data, bug ladybug[]) {
 	};
 	for (b1 = 0; b1 < data->j; ++b1) {
 		if (ladybug[b1].movesflag == 1) {
-			for (i = 0, b2 = b1; i < 6; ++i) {
+			for (i = 0; i < 6; ++i) {
 MSG_DBG( "b1 = %d J( %d, %d) : b2 = %d : i = %d",
 	b1, ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, b2, i);
 
-				paritying = ladybug[b2].dest.pos.row & 1;
-				row = ladybug[b2].dest.pos.row + directions[paritying][i][0];
-				col = ladybug[b2].dest.pos.col + directions[paritying][i][1];
+				paritying = ladybug[b1].dest.pos.row & 1;
+				row = ladybug[b1].dest.pos.row + directions[paritying][i][0];
+				col = ladybug[b1].dest.pos.col + directions[paritying][i][1];
 				if (row >= 0 && row < data->A && col >= 0 && col < data->L &&
-				  H[row][col].elem == LADYBUG && H[row][col].index != b2 &&
-				  ladybug[H[row][col].index].movesflag == 1) {
-					if (ladybug[H[row][col].index].dest.pos.row == ladybug[b2].dest.pos.row &&
-					  ladybug[H[row][col].index].dest.pos.col == ladybug[b2].dest.pos.col) {
-						if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b2].dest.energy)
-						  > abs( ladybug[b2].orig.energy - ladybug[b2].dest.energy)) {
-							ladybug[b2].movesflag = 0;
-							b2 = H[row][col].index;
+				  H[row][col].elem == LADYBUG && ladybug[H[row][col].index].movesflag == 1 && H[row][col].index != b1) {
+					if (ladybug[H[row][col].index].dest.pos.row == ladybug[b1].dest.pos.row &&
+					  ladybug[H[row][col].index].dest.pos.col == ladybug[b1].dest.pos.col) {
+MSG_DBG( "Estou aqui!!");
+
+						if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b1].dest.energy)
+						  > abs( ladybug[b1].orig.energy - ladybug[b1].dest.energy)) {
+							ladybug[b1].movesflag = 0;
+							/*b2 = H[row][col].index;*/
+MSG_DBG( "Estou aqui!!");
+
 						}
-						else if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b2].dest.energy)
-						  < abs( ladybug[b2].orig.energy - ladybug[b2].dest.energy)) {
+						else if (abs( ladybug[H[row][col].index].orig.energy - ladybug[b1].dest.energy)
+						  < abs( ladybug[b1].orig.energy - ladybug[b1].dest.energy)) {
 							ladybug[H[row][col].index].movesflag = 0;
+MSG_DBG( "Estou aqui!!");
+
 						}
 						else {
-							ladybug[b2].movesflag = 0;
+							ladybug[b1].movesflag = 0;
 							ladybug[H[row][col].index].movesflag = 0;
+MSG_DBG( "Estou aqui!!");
+/*
 							if (++i < 6) {
 								do {
 									row = ladybug[b2].dest.pos.row + directions[paritying][i][0];
 									col = ladybug[b2].dest.pos.col + directions[paritying][i][1];
+
 									b2 = H[row][col].index;
+MSG_DBG( "Estou aqui!!");
+
 								} while (++i < 6 && ladybug[b2].movesflag == 0);
 							}
+MSG_DBG( "Estou aqui!!");
+*/
 						}
 					}
 				}
@@ -447,26 +615,25 @@ MSG_DBG( "b1 = %d J( %d, %d) : b2 = %d : i = %d",
 			ladybug[b1].movesflag = 0;
 		}
 	}
+/*
 	showBugs( ladybug, data->j);
+*/
 }
 
 /*
  * Apos o somatorio das partialEnergy, deve-se multiplicar pela cte C.
  * Quando uma joaninha se move, deve-se atualizar sua energia para 0.
  */
-float partialEnergy( position p, position q, occupation q_elem) {
-	float x, y;
+double partialEnergy( position p, position q, occupation q_elem, double C) {
+	double x, y;
 	if (q_elem == VACANT)
 		return 0.0;
 	else {
-		x = abs( p.row - q.row);
-		y = abs( p.col - q.col) - (float) ((p.row + q.row) & 1) * 0.50;
+		x = (double) abs( p.row - q.row);
+		y = (double) abs( p.col - q.col) - (double) ((p.row + q.row) & 1) * 0.50;
 	}
 	/* JOANINHA ou CALOR */
-	if (q_elem != COLD)
-		return 1 / ( 0.75 * x * x + y * y);
-	else
-		return -1 / ( 0.75 * x * x + y * y);
+	return (q_elem != COLD) ? C / (0.75 * x * x + y * y) : -C / (0.75 * x * x + y * y);
 }
 
 /*
@@ -476,14 +643,14 @@ float partialEnergy( position p, position q, occupation q_elem) {
  * Importante: sempre que mover uma joaninha, deve-se zerar a energia de sua
  * posicao, de todos os seus vizinhos e ainda o amount (numero de vizinhos).
  */
-float disturbsEnergy( eposition *orig, disturbs dis[], unsigned int C) {
+double disturbsEnergy( eposition *orig, disturbs dis[], double C) {
 	int c, I;
 	if (orig->energy == 0.0) {
 		/*#pragma omp parallel for private (x) reduction (+: sum)*/
 		for (I = D_HOT; I < D_COLD; ++I) {
 			/*#pragma omp parallel for private (x) reduction (+: sum)*/
 			for (c = dis[I].begin; c != dis[I].end;) {
-				orig->energy += partialEnergy( orig->pos, dis[I].pos[c].pos, HOT);
+				orig->energy += partialEnergy( orig->pos, dis[I].pos[c].pos, HOT, C);
 				(c + 1 == dis[I].size) ? c = 0 : c++;
 			}
 		}
@@ -493,7 +660,7 @@ float disturbsEnergy( eposition *orig, disturbs dis[], unsigned int C) {
 
 void bugsEnergy( hex *H[], disturbs dis[], bug ladybug[], const entData *data) {
 	int b1, b2, k, minIndex, maxIndex;
-	float minE, maxE, tmpE;
+	double minE, maxE, tmpE;
 	/*#pragma omp parallel for private (x) reduction (+: sum)*/
 	neighbornsBugs( H, data->L, data->A, ladybug, data->j);
 	for (b1 = 0; b1 < data->j; ++b1) {
@@ -505,7 +672,7 @@ MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.
 
 		for (b2 = 0; b2 < data->j; ++b2) {
 			if (b2 != b1) {
-				ladybug[b1].orig.energy += partialEnergy( ladybug[b1].orig.pos, ladybug[b2].orig.pos, LADYBUG);
+				ladybug[b1].orig.energy += partialEnergy( ladybug[b1].orig.pos, ladybug[b2].orig.pos, LADYBUG, data->C);
 MSG_DBG( "b1= %d ( %d, %d) : b2= %d ( %d, %d)", b1, ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, b2, ladybug[b2].orig.pos.row, ladybug[b2].orig.pos.col);
 			}
 MSG_DBG( "J( %d, %d) : energy = %f", ladybug[b1].orig.pos.row, ladybug[b1].orig.pos.col, ladybug[b1].orig.energy);
@@ -587,94 +754,6 @@ MSG_DBG( "\ncycle = %u", cycle);
 
 	return EXIT_SUCCESS;
 }
-
-void killBugs( bug *ladybug) {
-	return;
-}
-
-void destroyHexGrid( hex *H[]) {
-	return;
-}
-
-/*
- ==============================================================================
-*/
-
-int main( int argc, char *argv[]) {
-	entData data;
-	bug *ladybug;			/* Bug's positions vector */
-	hex **H;				/* Hex Matrix (Hex Grid) */
-	position p, q;
-/*
-	if (argc < 12) {
-		fprintf( stderr,
-				 "%d - Modo de uso:\n\t$ .%s L A j s C th_min th_max pc nc pf nf T P\n\n",
-				 -1, argv[0]);
-		fprintf( stderr, "onde:\n"
-				 " L : largura do hex grid;\n"
-				 " A : altura do hex grid;\n"
-				 " j : num. de joaninhas;\n"
-				 " s : semente para gerador aleatorio;\n"
-				 " C : constante de emissao de calor de uma joaninha;\n");
-		fprintf( stderr,
-				 " th_min : menor temperatura que a joaninha considera confortavel;\n"
-				 " th_max : maior temperatura que a joaninha considera confortavel;\n"
-				 " pc : prob./hex de aparecer uma fonte de calor;\n"
-				 " nc : duracao em ciclos da fonte de calor;\n"
-				 " pf : prob./hex de aparecer uma fonte de frio;\n"
-				 " nf : duracao em ciclos da fonte de calor;\n"
-				 " T : num. de ciclos da simulacao;\n"
-				 " P : num. de threads na simulacao.\n\n");
-		exit( EXIT_FAILURE);
-	}
-
-	scanf( " %u %u %u %u %u %u %u %f %u %f %u %u %u",
-		   &L, &A, &j, &s, &C, &th_min, &th_max, &pc, &nc, &pf, &nf, &T, &P);
-*/
-	/* verificar: th_min < th_max */
-	data.L = 500;
-	data.A = 500;
-	data.j = 10;
-	data.s = 0;
-	data.C = 1;
-	data.th_min = 1.25;
-	data.th_max = 2.0;
-	data.pc = 0.4;
-	data.nc = 2;
-	data.pf = 0.3;
-	data.nf = 1;
-	data.T = 20;
-	data.P = 1;
-
-	H = createHexGrid( &data);
-	ladybug = createBugs( H, &data);
-/*
-for (i = 0; i < data.j; ++i)
-MSG_DBG( "H( %d, %d) : energy = %f", ladybug[i].orig.pos.row, ladybug[i].orig.pos.col, ladybug[i].orig.energy);
-*/
-	showBugs( ladybug, data.j);
-STARTTIME();
-	startSimulation( H, ladybug, &data);
-TELLTIME();
-	showBugs( ladybug, data.j);
-/*
-	killBugs( ladybug);
-	destroyHexGrid( H);
-*/
-	p.row = 1;
-	p.col = 1;
-	q.row = 3;
-	q.col = 1;
-/*
-	printf( "\nD(%d,%d)->(%d,%d)= %f\n", p.row, p.col, q.row, q.col, hexDist( p, q));
-	printf( "\n%d\n", (6 & 1));
-	printf( "\n%d\n", (3 / 2));
-*/
-
-	return EXIT_SUCCESS;
-}
-
-
 
 /*
  ==============================================================================
